@@ -34,6 +34,8 @@ _LOGGER.info(__name__)
 
 SCAN_INTERVAL = timedelta(seconds=240)
 
+MAX_BTNS = 3
+
 async def async_setup_platform(
     hass: HomeAssistant,
     config: ConfigType,
@@ -44,21 +46,19 @@ async def async_setup_platform(
     # We only want this platform to be set up via discovery.
     # logging.info('setup_platform', hass, config, add_entities, discovery_info)
     _LOGGER.info('setup_platform')
-    #_LOGGER.info(f'ip={hass.data[DOMAIN]}')
-    
-    #if discovery_info is None:
-    #    return
-
 
     switches = []
-    for item in config.get('switches') or []:
-        client = tcp_client(item.get('ip'))
-        client._device_id = item.get('did')
-        client._pid = item.get('pid')
-        client._dpid = item.get('dpid')
-        client.name = item.get('name')
-        client._device_model_name = item.get('dmn')
-        switches.append(CozyLifeSwitch(client, hass))
+    for btn_cnt in range(1, MAX_BTNS + 1):
+        config_name = "switches" if btn_cnt == 1 else f"switches{btn_cnt}"
+        for item in config.get(config_name) or []:
+            client = tcp_client(item.get('ip'))
+            client._device_id = item.get('did')
+            client._pid = item.get('pid')
+            client._dpid = item.get('dpid')
+            client.name = item.get('name')
+            client._device_model_name = item.get('dmn')
+            for btn in range(btn_cnt):
+                switches.append(CozyLifeSwitch(client, hass, btn))
 
     async_add_devices(switches)
     for switch in switches:
@@ -76,13 +76,14 @@ class CozyLifeSwitch(SwitchEntity):
     _tcp_client = None
     _attr_is_on = True
     
-    def __init__(self, tcp_client: tcp_client, hass) -> None:
-        """Initialize the sensor."""
+    def __init__(self, tcp_client: tcp_client, hass: HomeAssistant, btn: int) -> None:
+        """Initialize the sensor. btn must be 0-based."""
         _LOGGER.info('__init__')
         self.hass = hass
         self._tcp_client = tcp_client
-        self._unique_id = tcp_client.device_id
-        self._name = tcp_client.name or tcp_client.device_id[-4:]
+        self._unique_id = f"{tcp_client.device_id}_{btn + 1}"
+        self._name = f"{tcp_client.name or tcp_client.device_id[-4:]}_{btn + 1}"
+        self._btn = btn
         self._refresh_state()
 
     @property
@@ -97,7 +98,7 @@ class CozyLifeSwitch(SwitchEntity):
         self._state = self._tcp_client.query()
         _LOGGER.info(f'_name={self._name},_state={self._state}')
         if self._state:
-            self._attr_is_on = 0 < self._state['1']
+            self._attr_is_on = 0 < (self._state['1'] & 1 << self._btn)
     
     @property
     def name(self) -> str:
@@ -123,7 +124,7 @@ class CozyLifeSwitch(SwitchEntity):
         _LOGGER.info(f'turn_on:{kwargs}')
 
         await self.hass.async_add_executor_job(self._tcp_client.control, {
-            '1': 1
+            '1': (self._state['1'] | 1 << self._btn)
         })
 
         return None
@@ -135,7 +136,7 @@ class CozyLifeSwitch(SwitchEntity):
         _LOGGER.info('turn_off')
 
         await self.hass.async_add_executor_job(self._tcp_client.control, {
-            '1': 0
+            '1': (self._state['1'] & ~(1 << self._btn))
         })
         
         return None
