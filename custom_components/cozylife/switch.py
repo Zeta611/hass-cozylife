@@ -123,6 +123,7 @@ class CozyLifeSwitch(SwitchEntity):
 
         _LOGGER.info(f'turn_on:{kwargs}')
 
+        self._state = self._tcp_client.query()
         await self.hass.async_add_executor_job(self._tcp_client.control, {
             '1': (self._state['1'] | 1 << self._btn)
         })
@@ -135,6 +136,7 @@ class CozyLifeSwitch(SwitchEntity):
 
         _LOGGER.info('turn_off')
 
+        self._state = self._tcp_client.query()
         await self.hass.async_add_executor_job(self._tcp_client.control, {
             '1': (self._state['1'] & ~(1 << self._btn))
         })
